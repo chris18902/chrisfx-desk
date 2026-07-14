@@ -313,7 +313,7 @@
   <div class="ticker" id="tickerRow"></div>
 
   <div class="footer-note">
-    Fundamental-Bias: Claude-API mit Websuche (nur Qualitätsquellen). Technik-Bias: echte Chartdaten via TradingView-Bridge (Claude Code am Mac → Gist-Feed), sofern verbunden – bei Verbindungsabbruch erscheint oben eine Warnung und der Bias läuft rein fundamental weiter. Keine Anlageberatung.
+    Alle Analysen (Fundamental per Websuche, Technik via TradingView-Bridge, Tokyo-Scan) laufen kostenlos über Claude Code am Mac und werden per Gist-Feed angezeigt. Bei Verbindungsproblemen erscheint oben eine Warnung. Keine Anlageberatung.
   </div>
 </div>
 
@@ -334,10 +334,7 @@
       <button class="modal-close" onclick="closeSettings()">✕</button>
     </div>
     <div style="font-size:13px;line-height:1.7;color:var(--txt-2)">
-      <p style="margin-bottom:10px"><strong style="color:var(--txt)">Eigener Anthropic-API-Key (optional)</strong></p>
-      <p style="margin-bottom:14px">Ohne Key laufen die Analysen über Claude.ai – das funktioniert im Browser am Rechner, aber in der iPhone-App aktuell nicht zuverlässig. Mit eigenem Key (console.anthropic.com) spricht das Dashboard direkt mit der API und läuft überall. Der Key wird nur lokal auf diesem Gerät gespeichert und nur an api.anthropic.com gesendet.</p>
-      <input id="apiKeyInput" type="password" placeholder="sk-ant-…" autocomplete="off"
-        style="width:100%;background:var(--card-2);border:1px solid var(--border);border-radius:9px;padding:11px 13px;color:var(--txt);font-family:var(--mono);font-size:12.5px;margin-bottom:14px">
+      <p style="margin-bottom:14px">Alle Analysen laufen kostenlos über Claude Code auf deinem Mac (Claude-Abo). Das Dashboard zeigt nur an und startet den Mac-Lauf per Knopf.</p>
       <p style="margin-bottom:10px"><strong style="color:var(--txt)">Technik-Feed (TradingView-Bridge)</strong></p>
       <p style="margin-bottom:14px">Raw-URL deines GitHub-Gists mit der tech.json, die Claude Code am Mac über die TradingView-Bridge erzeugt. Sobald hinterlegt, fließt die Technik-Analyse mit in den Bias ein und das Dashboard warnt oben, wenn die Verbindung abbricht oder die Daten veraltet sind.</p>
       <input id="techFeedInput" type="text" placeholder="https://gist.githubusercontent.com/…/raw/tech.json" autocomplete="off"
@@ -439,7 +436,8 @@ function startTechPolling(){
   pollTimer=setInterval(async()=>{
     tries++;
     await loadTechFeed();
-    const fresh=techData&&new Date(techData.updated).getTime()>=awaitingSince;
+    const done=techData&&(!techData.phase||techData.phase==='done');
+    const fresh=techData&&new Date(techData.updated).getTime()>=awaitingSince&&done;
     if(fresh||tries>40){  /* max ~20 Min */
       clearInterval(pollTimer);pollTimer=null;
       if(!fresh)showTechBanner('⚠ Mac-Analyse hat nach 20 Min kein Ergebnis geliefert. Läuft der Wächter? TradingView im Debug-Modus? Log prüfen: ~/tv-analyse.log');
@@ -468,15 +466,25 @@ async function loadTechFeed(){
     const r=await fetch(TECH_URL+sep+'t='+Date.now(),{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status);
     techData=await r.json();
-    const ageH=(Date.now()-new Date(techData.updated).getTime())/36e5;
-    const waiting=awaitingSince&&new Date(techData.updated).getTime()<awaitingSince;
+    const uts=new Date(techData.updated).getTime();
+    /* Fundamental + Markt kommen jetzt ebenfalls vom Mac aus dem Feed */
+    if(techData.fundamental){
+      for(const s of ['XAUUSD','US30']){
+        if(techData.fundamental[s])state.assets[s]={...techData.fundamental[s],ts:uts,live:true};
+      }
+    }
+    if(techData.market){state.market={...techData.market,ts:uts};renderMarket()}
+    const ageH=(Date.now()-uts)/36e5;
+    const done=!techData.phase||techData.phase==='done';
+    const waiting=awaitingSince&&(uts<awaitingSince||!done);
     if(waiting){
-      showTechBanner('⏳ Mac-Analyse läuft… Technik-Analyse + Tokyo-Scan werden gerade auf deinem Chart ausgeführt (5–15 Min). Das Ergebnis erscheint hier automatisch – unten siehst du solange den letzten Stand.');
+      const ph=(uts>=awaitingSince&&techData.phase)?(' Stand: '+techData.phase+'.'):'';
+      showTechBanner('⏳ Mac-Analyse läuft… Fundamental → Technik → Tokyo-Scan (insgesamt 5–15 Min).'+ph+' Ergebnisse erscheinen automatisch.');
     }else if(techData.status==='error'){
-      showTechBanner('⚠ TradingView-Bridge meldet einen Fehler: '+(techData.error||'unbekannt')+'. Vermutlich hat ein TradingView-Update die Verbindung gebrochen – am Mac TradingView im Debug-Modus neu starten und die Analyse erneut laufen lassen. Bias läuft solange rein fundamental.');
+      showTechBanner('⚠ TradingView-Bridge meldet einen Fehler: '+(techData.error||'unbekannt')+'. Vermutlich hat ein TradingView-Update die Verbindung gebrochen – am Mac TradingView im Debug-Modus neu starten und die Analyse erneut laufen lassen.');
       techData=null;
     }else if(!(ageH<20)){
-      showTechBanner('⚠ Technik-Daten sind '+(isNaN(ageH)?'unbekannt':Math.round(ageH)+'h')+' alt. Falls TradingView ein Update gemacht hat, ist die Bridge-Verbindung eventuell abgebrochen – am Mac neu verbinden und Analyse laufen lassen. Die Technik unten basiert auf dem letzten Stand.');
+      showTechBanner('⚠ Daten sind '+(isNaN(ageH)?'unbekannt':Math.round(ageH)+'h')+' alt. Für frische Analysen: Mac aufklappen (TradingView im Debug-Modus) und den Button drücken. Unten siehst du den letzten Stand.');
     }else{
       hideTechBanner();
     }
@@ -485,7 +493,7 @@ async function loadTechFeed(){
     if(awaitingSince){
       showTechBanner('⏳ Mac-Analyse angefordert – warte auf erstes Ergebnis… (Feed gerade nicht lesbar: '+e.message+')');
     }else{
-      showTechBanner('⚠ Technik-Feed nicht erreichbar ('+e.message+'). Falls TradingView ein Update gemacht hat, Bridge am Mac neu starten. Bias läuft solange rein fundamental.');
+      showTechBanner('⚠ Feed nicht erreichbar ('+e.message+'). Feed-URL in ⚙ prüfen; falls TradingView ein Update gemacht hat, Bridge am Mac neu starten.');
     }
   }
   renderAsset('XAUUSD');renderAsset('US30');
@@ -511,8 +519,6 @@ const stor={
 };
 async function loadCache(){
   try{
-    const key=await stor.get('chrisfx-apikey');
-    if(key){API_KEY=key;const el=document.getElementById('apiKeyInput');if(el)el.value=key}
     const feed=await stor.get('chrisfx-techfeed');
     if(feed){TECH_URL=feed;const tf=document.getElementById('techFeedInput');if(tf)tf.value=feed}
     const gt=await stor.get('chrisfx-ghtoken');
@@ -544,9 +550,9 @@ async function rawCall(body,mode){
   if(data.error)throw new Error((data.error.message||JSON.stringify(data.error)).slice(0,160));
   return data;
 }
-async function callApi(prompt,useSearch){
-  const body={model:'claude-sonnet-4-6',max_tokens:4000,messages:[{role:'user',content:prompt}]};
-  if(useSearch)body.tools=[{type:'web_search_20250305',name:'web_search'}];
+async function callApi(prompt,useSearch,model,maxUses){
+  const body={model:model||'claude-sonnet-4-6',max_tokens:4000,messages:[{role:'user',content:prompt}]};
+  if(useSearch)body.tools=[{type:'web_search_20250305',name:'web_search',max_uses:maxUses||4}];
   /* Immer zuerst der kostenlose Claude.ai-Weg. Nur wenn der scheitert
      (z.B. iPhone-App) und ein eigener Key hinterlegt ist, wird direkt
      über die API gegangen (kostenpflichtig, läuft überall). */
@@ -568,12 +574,12 @@ async function callApi(prompt,useSearch){
     catch(err2){throw new Error('JSON unlesbar: '+err.message.slice(0,80))}
   }
 }
-async function askClaude(prompt){
-  try{return {data:await callApi(prompt,true),live:true}}
+async function askClaude(prompt,model,maxUses){
+  try{return {data:await callApi(prompt,true,model,maxUses),live:true}}
   catch(e1){
     console.warn('Call mit Websuche fehlgeschlagen:',e1.message);
     try{
-      const d=await callApi(prompt+'\nHinweis: Die Websuche ist gerade nicht verfügbar. Nutze dein bestes vorhandenes Wissen und formuliere vorsichtig, wo Live-Daten fehlen.',false);
+      const d=await callApi(prompt+'\nHinweis: Die Websuche ist gerade nicht verfügbar. Nutze dein bestes vorhandenes Wissen und formuliere vorsichtig, wo Live-Daten fehlen.',false,model);
       return {data:d,live:false};
     }catch(e2){throw new Error(e1.message)}
   }
@@ -589,14 +595,14 @@ const TECH_METHODIK=`Ergänze zusätzlich eine technische Strukturanalyse nach d
 function assetPrompt(sym){
   const isGold=sym==='XAUUSD';
   return `Du bist Fundamental-Analyst für ${isGold?'Gold (XAUUSD, Spot)':'den Dow Jones Index (US30)'}.
-Recherchiere per Websuche den AKTUELLEN Stand (heute). Nutze ausschließlich seriöse Qualitäts- und Primärquellen: Reuters, Bloomberg, Financial Times, WSJ, CNBC, Kitco, FXStreet, offizielle Fed-/BLS-Veröffentlichungen, CME FedWatch. Ignoriere Clickbait, anonyme Blogs, Foren und unbelegte Behauptungen. Wenn sich seriöse Quellen widersprechen, benenne die Unsicherheit offen statt eine Seite zu erfinden.
+Recherchiere per Websuche den AKTUELLEN Stand (heute). Nutze HÖCHSTENS 4 gezielte Websuchen. Nutze ausschließlich seriöse Qualitäts- und Primärquellen: Reuters, Bloomberg, Financial Times, WSJ, CNBC, Kitco, FXStreet, offizielle Fed-/BLS-Veröffentlichungen, CME FedWatch. Ignoriere Clickbait, anonyme Blogs, Foren und unbelegte Behauptungen. Wenn sich seriöse Quellen widersprechen, benenne die Unsicherheit offen statt eine Seite zu erfinden.
 Erfasse: aktuellen Preis und Tagesveränderung, Fed-/Zinslage (Chair, eingepreiste Hike/Cut-Wahrscheinlichkeiten), anstehende Termine mit Datum und Uhrzeit (CPI, PPI, Testimonies, FOMC${isGold?'':', wichtige Earnings'}), Geopolitik und wie der Markt sie gerade interpretiert, Dollar-Index und Treasury-Renditen${isGold?', Zentralbankkäufe und ETF-Flows':', Sektor-Rotation und Marktbreite'}.
 WICHTIG: Diese Analyse ist REIN FUNDAMENTAL. Keine Chartstruktur, keine Fibonacci-Level, keine technischen Marken als Entscheidungsgrundlage. Der Bias ergibt sich ausschließlich aus der fundamentalen Gesamtlage. Statt Preis-Invalidierungsleveln nenne die konkreten EREIGNISSE, die den Bias kippen würden (z.B. "CPI deutlich über/unter Erwartung", "dovisher Ton in der Fed-Anhörung", "Eskalation/Deeskalation im Nahen Osten").
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt in EINER Zeile, ohne Markdown, ohne Text davor oder danach, alle Texte auf Deutsch:
-{"bias":"Bullish|Bearish|Neutral","confidence":<40-90>,"change_pct":<Zahl>,"quick":"<2-3 Sätze fundamentale Kernlage>","bullets":["<Fundamentaler Treiber 1>","<Treiber 2>","<Treiber 3>","<Treiber 4>"],"deep":"<Ausführliche Fundamentalanalyse in Absätzen: 1) Zins- und Fed-Lage inkl. eingepreister Erwartungen 2) Anstehende Termine mit Uhrzeit in deutscher Zeit und erwartetem Einfluss 3) Geopolitik und Makro-Treiber 4) Fundamentale Gegenanalyse: die stärksten Argumente der Gegenseite 5) Bias-Fazit mit den konkreten Ereignissen, die ihn kippen würden. Absätze mit \\n\\n trennen.>"}`
+{"bias":"Bullish|Bearish|Neutral","confidence":<40-90>,"change_pct":<Zahl>,"quick":"<2-3 Sätze fundamentale Kernlage>","bullets":["<Fundamentaler Treiber 1>","<Treiber 2>","<Treiber 3>","<Treiber 4>"],"deep":"<Kompakte Fundamentalanalyse (max. ca. 250 Wörter) in Absätzen: 1) Zins- und Fed-Lage inkl. eingepreister Erwartungen 2) Anstehende Termine mit Uhrzeit in deutscher Zeit und erwartetem Einfluss 3) Geopolitik und Makro-Treiber 4) Fundamentale Gegenanalyse: die stärksten Argumente der Gegenseite 5) Bias-Fazit mit den konkreten Ereignissen, die ihn kippen würden. Absätze mit \\n\\n trennen.>"}`
   +(TECH_ENABLED?'\n'+TECH_METHODIK:'');
 }
-const MARKET_PROMPT=`Suche im Web nach der heutigen Marktlage (Gold, Dow Jones, Dollar-Index DXY, US-10Y-Rendite, Öl Brent/WTI) und den 3-4 wichtigsten marktbewegenden Nachrichten von heute.
+const MARKET_PROMPT=`Suche im Web (höchstens 3 Suchen) nach der heutigen Marktlage (Gold, Dow Jones, Dollar-Index DXY, US-10Y-Rendite, Öl Brent/WTI) und den 3-4 wichtigsten marktbewegenden Nachrichten von heute.
 Antworte AUSSCHLIESSLICH mit einem JSON-Objekt, ohne Markdown, alle Texte auf Deutsch:
 {"mood_from":"Neutral|Cautious|Risk-On|Risk-Off","mood_to":"Neutral|Cautious|Risk-On|Risk-Off","briefing_title":"<prägnante Schlagzeile zur Session>","briefing_text":"<5-7 Sätze: was die Session dominiert, was gepreist ist, worauf achten>","capital_flow":[{"name":"DXY","pct":<Zahl>},{"name":"US10Y","pct":<Zahl>},{"name":"UKOIL","pct":<Zahl>},{"name":"GOLD","pct":<Zahl>},{"name":"US30","pct":<Zahl>}],"flash_news":[{"title":"<Schlagzeile>","sentiment":"neg|pos|neu","source":"<Quelle>"}],"ticker":[{"name":"XAUUSD","val":"<Preis>","chg":<Zahl>},{"name":"US30","val":"<Preis>","chg":<Zahl>},{"name":"DXY","val":"<Wert>","chg":<Zahl>},{"name":"US10Y","val":"<Wert %>","chg":<Zahl>},{"name":"BRENT","val":"<Preis>","chg":<Zahl>}]}`;
 
@@ -605,31 +611,16 @@ async function refreshAll(){
   const btn=document.getElementById('refreshBtn');
   const err=document.getElementById('errBox');
   btn.disabled=true;err.classList.remove('show');
-  /* 1) Mac-Analyse anstoßen (Technik + Tokyo-Scan), falls Token hinterlegt */
   if(TECH_URL&&GH_TOKEN){
     btn.textContent='⟳ Starte Mac-Analyse…';
     const ok=await sendMacTrigger();
     if(ok){awaitingSince=Date.now();startTechPolling()}
-    else{showTechBanner('⚠ Fernstart fehlgeschlagen – GitHub-Token in ⚙ prüfen. Es wird der letzte Technik-Stand angezeigt.')}
+    else{showTechBanner('⚠ Fernstart fehlgeschlagen – GitHub-Token in ⚙ prüfen. Es wird der letzte Stand angezeigt.')}
+  }else{
+    showTechBanner('⚠ Feed-URL oder GitHub-Token fehlt (⚙) – ohne beides kann der Button den Mac nicht starten.');
   }
-  btn.textContent='⟳ Lädt Technik-Feed…';
+  btn.textContent='⟳ Lade letzten Stand…';
   await loadTechFeed();
-  const errs=[];
-  const steps=[
-    ['XAUUSD',assetPrompt('XAUUSD'),r=>{state.assets.XAUUSD={...r.data,ts:Date.now(),live:r.live};renderAsset('XAUUSD')}],
-    ['US30',assetPrompt('US30'),r=>{state.assets.US30={...r.data,ts:Date.now(),live:r.live};renderAsset('US30')}],
-    ['Briefing',MARKET_PROMPT,r=>{state.market={...r.data,ts:Date.now(),live:r.live};renderMarket()}]
-  ];
-  for(const [name,prompt,apply] of steps){
-    btn.textContent='⟳ Lädt '+name+'…';
-    try{apply(await askClaude(prompt))}
-    catch(e){errs.push(name+': '+e.message)}
-  }
-  if(errs.length){
-    const hint=API_KEY?'':' — Tipp: Am Rechner im Browser öffnen, oder unter ⚙ einen eigenen API-Key hinterlegen, dann läuft es auch auf dem iPhone.';
-    err.textContent='Fehlgeschlagen ('+errs.length+'/3): '+errs.join(' · ')+hint;
-    err.classList.add('show');
-  }
   state.ts=Date.now();
   await saveCache();
   btn.disabled=false;btn.textContent='⟳ Analyse aktualisieren';
@@ -741,22 +732,22 @@ function closeDeep(){document.getElementById('modalBg').classList.remove('show')
 function openSettings(){document.getElementById('settingsBg').classList.add('show')}
 function closeSettings(){document.getElementById('settingsBg').classList.remove('show');document.getElementById('settingsMsg').textContent=''}
 async function saveSettings(){
-  const v=document.getElementById('apiKeyInput').value.trim();
-  API_KEY=v;
-  await stor.set('chrisfx-apikey',v);
   const f=document.getElementById('techFeedInput').value.trim();
   TECH_URL=f;
   await stor.set('chrisfx-techfeed',f);
   const g=document.getElementById('ghTokenInput').value.trim();
   GH_TOKEN=g;
   await stor.set('chrisfx-ghtoken',g);
-  document.getElementById('settingsMsg').textContent='Gespeichert.'+(f?' Technik-Feed aktiv.':'')+(g?' Fernstart aktiv – der Button startet die Mac-Analyse.':'')+(v?' API-Key als Fallback hinterlegt.':'');
+  document.getElementById('settingsMsg').textContent='Gespeichert.'+(f?' Feed aktiv.':'')+(g?' Fernstart aktiv – der Button startet die Mac-Analyse.':'');
   loadTechFeed();
 }
 async function clearKey(){
-  API_KEY='';document.getElementById('apiKeyInput').value='';
-  await stor.set('chrisfx-apikey','');
-  document.getElementById('settingsMsg').textContent='Key entfernt.';
+  TECH_URL='';GH_TOKEN='';
+  document.getElementById('techFeedInput').value='';
+  document.getElementById('ghTokenInput').value='';
+  await stor.set('chrisfx-techfeed','');
+  await stor.set('chrisfx-ghtoken','');
+  document.getElementById('settingsMsg').textContent='Zurückgesetzt.';
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeDeep()});
 
