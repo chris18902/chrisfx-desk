@@ -545,7 +545,7 @@ async function rawCall(body,mode){
   return data;
 }
 async function callApi(prompt,useSearch){
-  const body={model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]};
+  const body={model:'claude-sonnet-4-6',max_tokens:4000,messages:[{role:'user',content:prompt}]};
   if(useSearch)body.tools=[{type:'web_search_20250305',name:'web_search'}];
   /* Immer zuerst der kostenlose Claude.ai-Weg. Nur wenn der scheitert
      (z.B. iPhone-App) und ein eigener Key hinterlegt ist, wird direkt
