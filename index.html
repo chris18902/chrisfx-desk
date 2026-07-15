@@ -438,9 +438,9 @@ function startTechPolling(){
     await loadTechFeed();
     const done=techData&&(!techData.phase||techData.phase==='done');
     const fresh=techData&&new Date(techData.updated).getTime()>=awaitingSince&&done;
-    if(fresh||tries>40){  /* max ~20 Min */
+    if(fresh||tries>60){  /* max ~30 Min */
       clearInterval(pollTimer);pollTimer=null;
-      if(!fresh)showTechBanner('⚠ Mac-Analyse hat nach 20 Min kein Ergebnis geliefert. Läuft der Wächter? TradingView im Debug-Modus? Log prüfen: ~/tv-analyse.log');
+      if(!fresh)showTechBanner('⚠ Mac-Analyse hat nach 30 Min kein Ergebnis geliefert. Läuft der Wächter? TradingView im Debug-Modus? Log prüfen: ~/tv-analyse.log');
       awaitingSince=null;
       if(fresh)loadTechFeed();
     }
@@ -479,7 +479,7 @@ async function loadTechFeed(){
     const waiting=awaitingSince&&(uts<awaitingSince||!done);
     if(waiting){
       const ph=(uts>=awaitingSince&&techData.phase)?(' Stand: '+techData.phase+'.'):'';
-      showTechBanner('⏳ Mac-Analyse läuft… Fundamental → Technik → Tokyo-Scan (insgesamt 5–15 Min).'+ph+' Ergebnisse erscheinen automatisch.');
+      showTechBanner('⏳ Mac-Analyse läuft… Fundamental → Technik (insgesamt 8–20 Min).'+ph+' Ergebnisse erscheinen automatisch.');
     }else if(techData.status==='error'){
       showTechBanner('⚠ TradingView-Bridge meldet einen Fehler: '+(techData.error||'unbekannt')+'. Vermutlich hat ein TradingView-Update die Verbindung gebrochen – am Mac TradingView im Debug-Modus neu starten und die Analyse erneut laufen lassen.');
       techData=null;
@@ -719,9 +719,6 @@ function openDeep(sym){
     if(t.levels)body+='Level & Fib-Zonen: '+t.levels+'\n\n';
     if(t.invalidierung)body+='Invalidierung: '+t.invalidierung+'\n\n';
     if(t.deep)body+=t.deep;
-    if(sym==='XAUUSD'&&techData.tokyo){
-      body+='\n\n━━ TOKYO-SCAN (Dovy-Consolidations) ━━\n\n'+techData.tokyo;
-    }
   }else if(TECH_URL){
     body+='\n\n━━ TECHNIK ━━\n\nKeine aktuellen Technik-Daten im Feed (siehe Warnung oben).';
   }
