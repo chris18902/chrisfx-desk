@@ -215,7 +215,7 @@
     <div>
       <div class="panel-head">
         <div class="panel-title"><span class="panel-ico">📈</span>
-          <span>AI Macro Desk<span class="sub">Market bias analysis · Fundamental + Technik</span></span>
+          <span>AI Macro Desk<span class="sub">Market bias analysis · Fundamental</span></span>
         </div>
         <button class="view-all" onclick="refreshAll()">Neu laden →</button>
       </div>
@@ -313,7 +313,7 @@
   <div class="ticker" id="tickerRow"></div>
 
   <div class="footer-note">
-    Alle Analysen (Fundamental per Websuche, Technik via TradingView-Bridge, Tokyo-Scan) laufen kostenlos über Claude Code am Mac und werden per Gist-Feed angezeigt. Bei Verbindungsproblemen erscheint oben eine Warnung. Keine Anlageberatung.
+    News- und Fundamental-Dashboard: Recherche läuft kostenlos über Claude Code am Mac (Websuche, Qualitätsquellen) und wird per Gist-Feed angezeigt. Technik- und Tokyo-Analysen laufen separat manuell über Claude Code. Keine Anlageberatung.
   </div>
 </div>
 
@@ -401,6 +401,9 @@ setInterval(renderSessions,30000);renderSessions();
 document.getElementById('briefDate').textContent=new Intl.DateTimeFormat('de-DE',{weekday:'long',day:'2-digit',month:'short',timeZone:'Europe/Berlin'}).format(new Date());
 
 /* ---------- Technik-Feed (TradingView-Bridge via Gist) ---------- */
+/* TECH_DISPLAY=false: Dashboard läuft als reines News-/Fundamental-Dashboard.
+   Auf true setzen, um Technik-Chips und Technik-Deep-Dive wieder einzublenden. */
+const TECH_DISPLAY=false;
 let TECH_URL='';
 let GH_TOKEN='';
 let techData=null;
@@ -479,12 +482,12 @@ async function loadTechFeed(){
     const waiting=awaitingSince&&(uts<awaitingSince||!done);
     if(waiting){
       const ph=(uts>=awaitingSince&&techData.phase)?(' Stand: '+techData.phase+'.'):'';
-      showTechBanner('⏳ Mac-Analyse läuft… Fundamental → Technik (insgesamt 8–20 Min).'+ph+' Ergebnisse erscheinen automatisch.');
+      showTechBanner('⏳ Mac-Analyse läuft… Fundamental-News-Recherche (ca. 3–8 Min).'+ph+' Ergebnisse erscheinen automatisch.');
     }else if(techData.status==='error'){
-      showTechBanner('⚠ TradingView-Bridge meldet einen Fehler: '+(techData.error||'unbekannt')+'. Vermutlich hat ein TradingView-Update die Verbindung gebrochen – am Mac TradingView im Debug-Modus neu starten und die Analyse erneut laufen lassen.');
+      showTechBanner('⚠ Mac-Lauf meldet einen Fehler: '+(techData.error||'unbekannt')+'. Log am Mac prüfen: ~/tv-analyse.log');
       techData=null;
     }else if(!(ageH<20)){
-      showTechBanner('⚠ Daten sind '+(isNaN(ageH)?'unbekannt':Math.round(ageH)+'h')+' alt. Für frische Analysen: Mac aufklappen (TradingView im Debug-Modus) und den Button drücken. Unten siehst du den letzten Stand.');
+      showTechBanner('⚠ Daten sind '+(isNaN(ageH)?'unbekannt':Math.round(ageH)+'h')+' alt. Für frische News: Mac aufklappen und den Button drücken. Unten siehst du den letzten Stand.');
     }else{
       hideTechBanner();
     }
@@ -493,7 +496,7 @@ async function loadTechFeed(){
     if(awaitingSince){
       showTechBanner('⏳ Mac-Analyse angefordert – warte auf erstes Ergebnis… (Feed gerade nicht lesbar: '+e.message+')');
     }else{
-      showTechBanner('⚠ Feed nicht erreichbar ('+e.message+'). Feed-URL in ⚙ prüfen; falls TradingView ein Update gemacht hat, Bridge am Mac neu starten.');
+      showTechBanner('⚠ Feed nicht erreichbar ('+e.message+'). Feed-URL in ⚙ prüfen.');
     }
   }
   renderAsset('XAUUSD');renderAsset('US30');
@@ -651,7 +654,7 @@ function renderAsset(sym){
   const t=techData&&techData.assets&&techData.assets[sym];
   const box=q('tech');
   if(box){
-    if(t){
+    if(TECH_DISPLAY&&t){
       const g=overallBias(d.bias,t.bias);
       box.innerHTML=
         '<span class="chip '+chipCls(d.bias)+'">Fundamental: '+esc(d.bias)+'</span>'+
@@ -710,9 +713,9 @@ function toggleBullets(sym,btn){
 }
 function openDeep(sym){
   const d=state.assets[sym];
-  const t=techData&&techData.assets&&techData.assets[sym];
+  const t=TECH_DISPLAY?(techData&&techData.assets&&techData.assets[sym]):null;
   document.getElementById('modalTitle').textContent='Deep Dive – '+sym+(sym==='XAUUSD'?' (OANDA)':' (CAPITALCOM)');
-  let body=d&&d.deep?('━━ FUNDAMENTAL ━━\n\n'+d.deep):'Noch keine Fundamentalanalyse geladen. Erst „Analyse aktualisieren" klicken.';
+  let body=d&&d.deep?(t?('━━ FUNDAMENTAL ━━\n\n'+d.deep):d.deep):'Noch keine Analyse geladen. Erst „Analyse aktualisieren" klicken.';
   if(t){
     body+='\n\n━━ TECHNIK (TradingView-Bridge) ━━\n\n';
     if(t.struktur)body+='Struktur: '+t.struktur+'\n\n';
